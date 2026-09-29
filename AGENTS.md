@@ -50,3 +50,9 @@ Kullanıcının talep ettiği kargo etiket şablonuna göre 10cm x 10cm (100mm x
 * **Adet:** `adet`, `miktar`, `sipariş adedi`, `qty`
 
 * **Çoklu Paket Oranı (1/2, 2/2 Kuralı):** Yalnızca aynı sipariş numarasına sahip etiket adedi 1'den fazla ise (örneğin 2 paket/parça ise) barkodun sağ tarafında kalın olarak `1/2`, `2/2` yazılır. Tekil siparişlerde (`tot == 1`) sağ taraf tamamen boş bırakılır.
+---
+
+## 5. Zorunlu GitHub & Vercel Senkronizasyonu Standardı
+
+* **Zorunlu Dağıtım Kuralı:** Projede yapılan en ufak değişiklik, yenilik, kural güncellemesi veya hata düzeltmesi sonrasında kodlar MUTLAKA anında GitHub'a commit ve push (git push origin main) edilir.
+* **Otomatik Canlı Yayın:** GitHub gkozan1997/toplu-barkod deposu Vercel'e bağlı olduğu için her push işlemi Vercel'de otomatik olarak yeni sürümü derler ve canlı yayını 7/24 güncel tutar.
