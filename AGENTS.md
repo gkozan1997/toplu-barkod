@@ -48,3 +48,5 @@ Kullanıcının talep ettiği kargo etiket şablonuna göre 10cm x 10cm (100mm x
 * **Barkod:** `kargo barkod`, `paket no`, `kargo takip no`, `barkod`, `barcode`, `sipariş no`
 * **Ürün Adı:** `ürün`, `ürün adı`, `product name`, `title`, `başlık`
 * **Adet:** `adet`, `miktar`, `sipariş adedi`, `qty`
+
+* **Çoklu Paket Oranı (1/2, 2/2 Kuralı):** Yalnızca aynı sipariş numarasına sahip etiket adedi 1'den fazla ise (örneğin 2 paket/parça ise) barkodun sağ tarafında kalın olarak `1/2`, `2/2` yazılır. Tekil siparişlerde (`tot == 1`) sağ taraf tamamen boş bırakılır.

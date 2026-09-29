@@ -12,7 +12,7 @@ import openpyxl
 import xlrd
 from reportlab.lib.pagesizes import mm
 from reportlab.lib.colors import HexColor
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, KeepTogether, PageBreak
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, KeepTogether, PageBreak, Table, TableStyle
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.graphics.barcode import createBarcodeDrawing
 from reportlab.pdfbase import pdfmetrics
@@ -378,6 +378,25 @@ def generate_labels_pdf(items, options=None):
         pdf_buffer.seek(0)
         return pdf_buffer.getvalue()
 
+    # Sipariş Numarası (Barkod) tekrar sayısı hesabı:
+    # SADECE aynı sipariş numarasına sahip etiket sayısı > 1 ise sağ tarafa 1/2, 2/2 yazılır.
+    order_totals = {}
+    for p in printable_items:
+        b = str(p.get('barcode', '')).strip()
+        if b:
+            order_totals[b] = order_totals.get(b, 0) + 1
+
+    order_counters = {}
+    for p in printable_items:
+        b = str(p.get('barcode', '')).strip()
+        tot = order_totals.get(b, 0)
+        if tot > 1:
+            cnt = order_counters.get(b, 0) + 1
+            order_counters[b] = cnt
+            p['package_ratio'] = f"{cnt}/{tot}"
+        else:
+            p['package_ratio'] = ""
+
     for idx, p_item in enumerate(printable_items):
         label_elements = []
 
@@ -403,8 +422,10 @@ def generate_labels_pdf(items, options=None):
         elif not p_item['customer']:
             label_elements.append(Spacer(1, 4 * mm))
 
-        # 5. Barkod (Code128) ve Altında Barkod Numarası
+        # 5. Barkod (Code128) ve Sağ Tarafta 1/2, 2/2 (Sadece aynı siparişlerde)
         barcode_val = p_item['barcode']
+        package_ratio = p_item.get('package_ratio', '')
+
         if barcode_val:
             try:
                 val_len = len(barcode_val)
@@ -423,8 +444,30 @@ def generate_labels_pdf(items, options=None):
                     fontSize=9.5,
                     fontName=regular_font
                 )
-                bc.hAlign = 'CENTER'
-                label_elements.append(bc)
+
+                if package_ratio:
+                    ratio_style = ParagraphStyle(
+                        'RatioStyle',
+                        fontName=bold_font,
+                        fontSize=14,
+                        leading=18,
+                        alignment=2, # Sağa dayalı
+                        textColor=HexColor('#000000')
+                    )
+                    ratio_p = Paragraph(f"<b>{package_ratio}</b>", ratio_style)
+                    t_bc = Table([[Paragraph('', cust_style), bc, ratio_p]], colWidths=[14 * mm, 62 * mm, 14 * mm])
+                    t_bc.setStyle(TableStyle([
+                        ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+                        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+                        ('LEFTPADDING', (0,0), (-1,-1), 0),
+                        ('RIGHTPADDING', (0,0), (-1,-1), 0),
+                        ('TOPPADDING', (0,0), (-1,-1), 0),
+                        ('BOTTOMPADDING', (0,0), (-1,-1), 0)
+                    ]))
+                    label_elements.append(t_bc)
+                else:
+                    bc.hAlign = 'CENTER'
+                    label_elements.append(bc)
             except Exception as e:
                 err_p = Paragraph(f"Barkod: {barcode_val}", cust_style)
                 label_elements.append(err_p)
@@ -453,10 +496,7 @@ def generate_labels_pdf(items, options=None):
 
         label_elements.append(Paragraph(clean_prod_name, current_prod_style))
 
-        # Eğer birden fazla adet varsa minik adet belirteci
-        if p_item['original_qty'] > 1 and print_count_mode == 'quantity':
-            label_elements.append(Spacer(1, 1.5 * mm))
-            label_elements.append(Paragraph(f"Adet: {p_item['qty_current']} / {p_item['qty_total']}", addr_style))
+
 
         story.append(KeepTogether(label_elements))
 

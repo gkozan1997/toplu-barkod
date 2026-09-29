@@ -381,7 +381,20 @@ function renderLabels() {
         return;
     }
 
+    // Sadece aynı sipariş numaralı etiketlerde oran hesapla
+    const orderTotalsScreen = {};
+    filtered.forEach(i => {
+        const b = String(i.barcode || '').trim();
+        if (b) {
+            const mult = (appState.printMode === 'quantity' ? (i.quantity || 1) : 1);
+            orderTotalsScreen[b] = (orderTotalsScreen[b] || 0) + mult;
+        }
+    });
+
     filtered.forEach(item => {
+        const b = String(item.barcode || '').trim();
+        const tot = orderTotalsScreen[b] || 0;
+        item.package_ratio = tot > 1 ? `1/${tot}` : '';
         const cardWrapper = document.createElement('div');
         cardWrapper.className = 'label-card-wrapper';
 
@@ -452,11 +465,24 @@ function renderLabels() {
 
         labelCard.appendChild(headerInfo);
 
-        // 2. Orta Kısım: Barkod (Code128) ve Rakamı
+        // 2. Orta Kısım: Barkod (Code128) ve Sağ Tarafta 1/2, 2/2
         const bcBox = document.createElement('div');
         bcBox.className = 'label-barcode-container';
+
+        const bcWrapper = document.createElement('div');
+        bcWrapper.className = 'barcode-svg-wrapper';
+
         const svgEl = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-        bcBox.appendChild(svgEl);
+        bcWrapper.appendChild(svgEl);
+
+        if (item.package_ratio) {
+            const ratioEl = document.createElement('div');
+            ratioEl.className = 'label-package-ratio';
+            ratioEl.textContent = item.package_ratio;
+            bcWrapper.appendChild(ratioEl);
+        }
+
+        bcBox.appendChild(bcWrapper);
         labelCard.appendChild(bcBox);
 
         try {
@@ -513,10 +539,37 @@ function prepareAndPrintDOM(itemsToPrint) {
     const fontSize = appState.options.font_size || 12;
     const showBorder = appState.options.show_border;
 
+    // Önce adetlere göre etiketleri aç
+    const expandedPrint = [];
     itemsToPrint.forEach(item => {
         const count = printMode === 'quantity' ? (item.quantity || 1) : 1;
         for (let i = 1; i <= count; i++) {
-            const pageEl = document.createElement('div');
+            expandedPrint.push({ ...item });
+        }
+    });
+
+    // Sadece aynı sipariş numaralı etiket sayısı > 1 ise hesapla
+    const orderTotals = {};
+    expandedPrint.forEach(p => {
+        const b = String(p.barcode || '').trim();
+        if (b) orderTotals[b] = (orderTotals[b] || 0) + 1;
+    });
+
+    const orderCounters = {};
+    expandedPrint.forEach(p => {
+        const b = String(p.barcode || '').trim();
+        const tot = orderTotals[b] || 0;
+        if (tot > 1) {
+            const cnt = (orderCounters[b] || 0) + 1;
+            orderCounters[b] = cnt;
+            p.package_ratio = `${cnt}/${tot}`;
+        } else {
+            p.package_ratio = '';
+        }
+    });
+
+    expandedPrint.forEach(item => {
+        const pageEl = document.createElement('div');
             pageEl.className = 'thermal-label-page';
             if (showBorder) {
                 pageEl.style.border = '1px dashed #000';
@@ -556,11 +609,24 @@ function prepareAndPrintDOM(itemsToPrint) {
 
             pageEl.appendChild(headerInfo);
 
-            // 2. Barkod SVG
+            // 2. Barkod SVG ve Sağ Tarafta 1/2, 2/2
             const bcBox = document.createElement('div');
             bcBox.className = 'thermal-barcode-box';
+
+            const bcWrapper = document.createElement('div');
+            bcWrapper.className = 'thermal-barcode-wrapper';
+
             const svgEl = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-            bcBox.appendChild(svgEl);
+            bcWrapper.appendChild(svgEl);
+
+            if (item.package_ratio) {
+                const ratioEl = document.createElement('div');
+                ratioEl.className = 'thermal-package-ratio';
+                ratioEl.textContent = item.package_ratio;
+                bcWrapper.appendChild(ratioEl);
+            }
+
+            bcBox.appendChild(bcWrapper);
             pageEl.appendChild(bcBox);
 
             try {
@@ -588,7 +654,6 @@ function prepareAndPrintDOM(itemsToPrint) {
             pageEl.appendChild(prodEl);
 
             printContainer.appendChild(pageEl);
-        }
     });
 
     setTimeout(() => {

@@ -613,3 +613,45 @@ body {
         padding-top: 1.5mm !important;
     }
 }
+
+/* Barkod Sağ Tarafına 1/2, 2/2 Yerleşimi */
+.barcode-svg-wrapper {
+    position: relative;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.label-package-ratio {
+    position: absolute;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 1.25rem;
+    font-weight: 800;
+    color: #000;
+    padding-right: 4px;
+    letter-spacing: 0.5px;
+}
+
+@media print {
+    .thermal-barcode-wrapper {
+        position: relative !important;
+        width: 100% !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+    }
+
+    .thermal-package-ratio {
+        position: absolute !important;
+        right: 1mm !important;
+        top: 50% !important;
+        transform: translateY(-50%) !important;
+        font-size: 15pt !important;
+        font-weight: 800 !important;
+        color: #000 !important;
+        letter-spacing: 0.5px !important;
+    }
+}
