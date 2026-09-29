@@ -662,3 +662,32 @@ body {
         letter-spacing: 0.5px !important;
     }
 }
+
+/* Sütun Eşleşmesi Butonu & Başlık Tasarımı */
+#btn-toggle-mapping {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.2s ease;
+}
+
+#btn-toggle-mapping.active {
+    background: rgba(245, 158, 11, 0.2) !important;
+    border-color: var(--accent) !important;
+    color: var(--accent) !important;
+    box-shadow: 0 0 10px rgba(245, 158, 11, 0.25);
+}
+
+.mapping-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+}
+
+.mapping-title-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}

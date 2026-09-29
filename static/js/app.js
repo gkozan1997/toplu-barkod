@@ -83,6 +83,16 @@ function initEventListeners() {
     document.getElementById('btn-load-downloads').addEventListener('click', loadRecentDownloads);
     document.getElementById('btn-apply-remap').addEventListener('click', applyRemapping);
 
+    const btnToggleMapping = document.getElementById('btn-toggle-mapping');
+    if (btnToggleMapping) {
+        btnToggleMapping.addEventListener('click', toggleMappingBar);
+    }
+
+    const btnCloseMapping = document.getElementById('btn-close-mapping');
+    if (btnCloseMapping) {
+        btnCloseMapping.addEventListener('click', () => setMappingBarVisibility(false));
+    }
+
     document.getElementById('check-select-all').addEventListener('change', (e) => {
         const isChecked = e.target.checked;
         appState.items.forEach(item => item.selected = isChecked);
@@ -258,7 +268,8 @@ function handleDataLoaded(res) {
     document.getElementById('active-filename').textContent = appState.filename;
     populateColumnSelects();
 
-    document.getElementById('mapping-bar').style.display = 'block';
+    // Sütun eşleşmesi varsayılan olarak gizli kalır
+    setMappingBarVisibility(false);
     document.getElementById('toolbar').style.display = 'flex';
 
     renderLabels();
@@ -327,6 +338,7 @@ function applyRemapping() {
             appState.mapping = res.mapping || {};
             renderLabels();
             updateCounts();
+            setMappingBarVisibility(false);
         } else {
             alert('Hata: ' + res.message);
         }
@@ -743,4 +755,32 @@ function showLoading(msg) {
 function hideLoading() {
     const loader = document.getElementById('global-loader');
     if (loader) loader.style.display = 'none';
+}
+
+// Sütun Eşleşmesi Gizle / Aç Yönetimi
+function setMappingBarVisibility(show) {
+    const bar = document.getElementById('mapping-bar');
+    const btn = document.getElementById('btn-toggle-mapping');
+    const arrow = document.getElementById('mapping-btn-arrow');
+    const label = document.getElementById('mapping-btn-label');
+
+    if (!bar) return;
+
+    if (show) {
+        bar.style.display = 'block';
+        if (btn) btn.classList.add('active');
+        if (arrow) arrow.textContent = '▴';
+        if (label) label.textContent = 'Sütunları Gizle';
+    } else {
+        bar.style.display = 'none';
+        if (btn) btn.classList.remove('active');
+        if (arrow) arrow.textContent = '▾';
+        if (label) label.textContent = 'Sütun Eşleşmesi';
+    }
+}
+
+function toggleMappingBar() {
+    const bar = document.getElementById('mapping-bar');
+    const isCurrentlyOpen = bar && bar.style.display !== 'none';
+    setMappingBarVisibility(!isCurrentlyOpen);
 }
