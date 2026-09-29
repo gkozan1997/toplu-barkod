@@ -672,8 +672,17 @@ function prepareAndPrintDOM(itemsToPrint) {
 
     setTimeout(() => {
         window.print();
+        setTimeout(() => {
+            if (printContainer) printContainer.innerHTML = '';
+        }, 1500);
     }, 100);
 }
+
+// Yazdırma penceresi kapandığında veya iptal edildiğinde ekran temizlensin
+window.addEventListener('afterprint', () => {
+    const printContainer = document.getElementById('print-sheet-container');
+    if (printContainer) printContainer.innerHTML = '';
+});
 
 function downloadBulkPDF() {
     const selectedItems = appState.items.filter(i => i.selected);
