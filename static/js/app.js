@@ -1,0 +1,658 @@
+/**
+ * Toplu Barkod & 10x10cm Termal Kargo Etiket Sistemi
+ * Dinamik JsBarcode SVG Render, Çoklu Yazdırma ve PDF Yönetimi
+ */
+
+let appState = {
+    items: [],
+    headers: [],
+    mapping: {},
+    filename: '',
+    printMode: 'quantity',
+    searchQuery: '',
+    options: {
+        barcode_height: 24,
+        font_size: 12,
+        show_border: false
+    }
+};
+
+document.addEventListener('DOMContentLoaded', () => {
+    loadSettingsFromStorage();
+    initEventListeners();
+});
+
+function loadSettingsFromStorage() {
+    try {
+        const saved = localStorage.getItem('toplu_kargo_barkod_settings');
+        if (saved) {
+            appState.options = { ...appState.options, ...JSON.parse(saved) };
+            applySettingsToUI();
+        }
+    } catch (e) {
+        console.error('Ayarlar yuklenemedi', e);
+    }
+}
+
+function saveSettingsToStorage() {
+    try {
+        localStorage.setItem('toplu_kargo_barkod_settings', JSON.stringify(appState.options));
+    } catch (e) {
+        console.error('Ayarlar kaydedilemedi', e);
+    }
+}
+
+function applySettingsToUI() {
+    document.getElementById('setting-barcode-height').value = appState.options.barcode_height || 24;
+    document.getElementById('setting-font-size').value = appState.options.font_size || 12;
+    document.getElementById('setting-show-border').checked = !!appState.options.show_border;
+}
+
+function initEventListeners() {
+    const dropArea = document.getElementById('drop-area');
+    const fileInput = document.getElementById('file-input');
+
+    dropArea.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', (e) => {
+        if (e.target.files && e.target.files[0]) {
+            uploadFile(e.target.files[0]);
+        }
+    });
+
+    ['dragenter', 'dragover'].forEach(eventName => {
+        dropArea.addEventListener(eventName, (e) => {
+            e.preventDefault();
+            dropArea.classList.add('drag-over');
+        });
+    });
+
+    ['dragleave', 'drop'].forEach(eventName => {
+        dropArea.addEventListener(eventName, (e) => {
+            e.preventDefault();
+            dropArea.classList.remove('drag-over');
+        });
+    });
+
+    dropArea.addEventListener('drop', (e) => {
+        if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+            uploadFile(e.dataTransfer.files[0]);
+        }
+    });
+
+    document.getElementById('btn-sample-load').addEventListener('click', loadSampleData);
+    document.getElementById('btn-load-downloads').addEventListener('click', loadRecentDownloads);
+    document.getElementById('btn-apply-remap').addEventListener('click', applyRemapping);
+
+    document.getElementById('check-select-all').addEventListener('change', (e) => {
+        const isChecked = e.target.checked;
+        appState.items.forEach(item => item.selected = isChecked);
+        renderLabels();
+        updateCounts();
+    });
+
+    document.getElementById('input-search').addEventListener('input', (e) => {
+        appState.searchQuery = e.target.value.toLowerCase().trim();
+        renderLabels();
+    });
+
+    document.getElementById('btn-mode-qty').addEventListener('click', () => {
+        appState.printMode = 'quantity';
+        document.getElementById('btn-mode-qty').classList.add('active');
+        document.getElementById('btn-mode-single').classList.remove('active');
+        renderLabels();
+        updateCounts();
+    });
+
+    document.getElementById('btn-mode-single').addEventListener('click', () => {
+        appState.printMode = 'single';
+        document.getElementById('btn-mode-single').classList.add('active');
+        document.getElementById('btn-mode-qty').classList.remove('active');
+        renderLabels();
+        updateCounts();
+    });
+
+    document.getElementById('btn-print-bulk').addEventListener('click', triggerBulkPrint);
+    document.getElementById('btn-download-pdf').addEventListener('click', downloadBulkPDF);
+
+    // Ayarlar Modalı
+    const modalSettings = document.getElementById('modal-settings');
+    document.getElementById('btn-open-settings').addEventListener('click', () => {
+        applySettingsToUI();
+        modalSettings.style.display = 'flex';
+    });
+    document.getElementById('btn-close-settings').addEventListener('click', () => modalSettings.style.display = 'none');
+    document.getElementById('btn-cancel-settings').addEventListener('click', () => modalSettings.style.display = 'none');
+    document.getElementById('btn-save-settings').addEventListener('click', () => {
+        appState.options.barcode_height = parseInt(document.getElementById('setting-barcode-height').value) || 24;
+        appState.options.font_size = parseInt(document.getElementById('setting-font-size').value) || 12;
+        appState.options.show_border = document.getElementById('setting-show-border').checked;
+        saveSettingsToStorage();
+        modalSettings.style.display = 'none';
+        renderLabels();
+    });
+
+    // Manuel Etiket Modalı
+    const modalManual = document.getElementById('modal-manual');
+    document.getElementById('btn-manual-add').addEventListener('click', () => {
+        document.getElementById('manual-cust').value = '';
+        document.getElementById('manual-addr').value = '';
+        document.getElementById('manual-dist').value = '';
+        document.getElementById('manual-city').value = '';
+        document.getElementById('manual-phone').value = '';
+        document.getElementById('manual-barcode').value = '';
+        document.getElementById('manual-name').value = '';
+        document.getElementById('manual-qty').value = '1';
+        modalManual.style.display = 'flex';
+    });
+    document.getElementById('btn-close-manual').addEventListener('click', () => modalManual.style.display = 'none');
+    document.getElementById('btn-cancel-manual').addEventListener('click', () => modalManual.style.display = 'none');
+    document.getElementById('btn-save-manual').addEventListener('click', () => {
+        const cust = document.getElementById('manual-cust').value.trim();
+        const addr = document.getElementById('manual-addr').value.trim();
+        const dist = document.getElementById('manual-dist').value.trim();
+        const city = document.getElementById('manual-city').value.trim();
+        const phone = document.getElementById('manual-phone').value.trim();
+        const barcode = document.getElementById('manual-barcode').value.trim();
+        const name = document.getElementById('manual-name').value.trim();
+        const qty = parseInt(document.getElementById('manual-qty').value) || 1;
+
+        if (!barcode && !name) {
+            alert('Lütfen en azından bir Barkod veya Ürün Adı girin.');
+            return;
+        }
+
+        let city_line = '';
+        if (dist && city) city_line = `(${dist}) ${city}`;
+        else city_line = city || dist;
+
+        const newItem = {
+            id: Date.now(),
+            customer: cust,
+            address: addr,
+            district: dist,
+            city: city,
+            city_line: city_line,
+            phone: phone,
+            barcode: barcode,
+            name: name || 'İsimsiz Ürün',
+            quantity: qty,
+            selected: true
+        };
+
+        appState.items.unshift(newItem);
+        modalManual.style.display = 'none';
+        
+        document.getElementById('toolbar').style.display = 'flex';
+        renderLabels();
+        updateCounts();
+    });
+}
+
+function uploadFile(file) {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    showLoading('Dosya yükleniyor ve kargo sütunları taranıyor...');
+
+    fetch('/api/upload', {
+        method: 'POST',
+        body: formData
+    })
+    .then(r => r.json())
+    .then(res => {
+        hideLoading();
+        if (!res.success) {
+            alert('Hata: ' + res.message);
+            return;
+        }
+        handleDataLoaded(res);
+    })
+    .catch(err => {
+        hideLoading();
+        alert('Sunucu hatası: ' + err.message);
+    });
+}
+
+function loadSampleData() {
+    showLoading('Örnek veriler yükleniyor...');
+    fetch('/api/load-sample')
+    .then(r => r.json())
+    .then(res => {
+        hideLoading();
+        if (res.success) {
+            handleDataLoaded(res);
+        } else {
+            alert('Hata: ' + res.message);
+        }
+    })
+    .catch(err => {
+        hideLoading();
+        alert('Hata: ' + err.message);
+    });
+}
+
+function loadRecentDownloads() {
+    showLoading('İndirilenler klasörü taranıyor...');
+    fetch('/api/load-downloads')
+    .then(r => r.json())
+    .then(res => {
+        hideLoading();
+        if (res.success) {
+            handleDataLoaded(res);
+        } else {
+            alert('Bilgi: ' + res.message);
+        }
+    })
+    .catch(err => {
+        hideLoading();
+        alert('Hata: ' + err.message);
+    });
+}
+
+function handleDataLoaded(res) {
+    appState.items = res.items || [];
+    appState.headers = res.headers || [];
+    appState.mapping = res.mapping || {};
+    appState.filename = res.filename || 'Dosya';
+
+    document.getElementById('active-filename').textContent = appState.filename;
+    populateColumnSelects();
+
+    document.getElementById('mapping-bar').style.display = 'block';
+    document.getElementById('toolbar').style.display = 'flex';
+
+    renderLabels();
+    updateCounts();
+}
+
+function populateColumnSelects() {
+    const headers = appState.headers;
+    const mapping = appState.mapping;
+
+    const fillSelect = (selectId, activeIdx) => {
+        const sel = document.getElementById(selectId);
+        sel.innerHTML = '<option value="">(Seçilmedi)</option>';
+        headers.forEach((h, idx) => {
+            const opt = document.createElement('option');
+            opt.value = idx;
+            opt.textContent = `${idx + 1}. ${h}`;
+            if (activeIdx !== null && activeIdx !== undefined && activeIdx === idx) {
+                opt.selected = true;
+            }
+            sel.appendChild(opt);
+        });
+    };
+
+    fillSelect('select-cust-col', mapping.cust_idx);
+    fillSelect('select-addr-col', mapping.addr_idx);
+    fillSelect('select-dist-col', mapping.dist_idx);
+    fillSelect('select-city-col', mapping.city_idx);
+    fillSelect('select-phone-col', mapping.phone_idx);
+    fillSelect('select-barcode-col', mapping.barcode_idx);
+    fillSelect('select-name-col', mapping.name_idx);
+    fillSelect('select-qty-col', mapping.qty_idx);
+}
+
+function applyRemapping() {
+    const cVal = document.getElementById('select-cust-col').value;
+    const aVal = document.getElementById('select-addr-col').value;
+    const dVal = document.getElementById('select-dist-col').value;
+    const ctVal = document.getElementById('select-city-col').value;
+    const pVal = document.getElementById('select-phone-col').value;
+    const bVal = document.getElementById('select-barcode-col').value;
+    const nVal = document.getElementById('select-name-col').value;
+    const qVal = document.getElementById('select-qty-col').value;
+
+    showLoading('Sütunlar yeniden eşleştiriliyor...');
+
+    fetch('/api/remap', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            cust_idx: cVal !== '' ? parseInt(cVal) : null,
+            addr_idx: aVal !== '' ? parseInt(aVal) : null,
+            dist_idx: dVal !== '' ? parseInt(dVal) : null,
+            city_idx: ctVal !== '' ? parseInt(ctVal) : null,
+            phone_idx: pVal !== '' ? parseInt(pVal) : null,
+            barcode_idx: bVal !== '' ? parseInt(bVal) : null,
+            name_idx: nVal !== '' ? parseInt(nVal) : null,
+            qty_idx: qVal !== '' ? parseInt(qVal) : null
+        })
+    })
+    .then(r => r.json())
+    .then(res => {
+        hideLoading();
+        if (res.success) {
+            appState.items = res.items || [];
+            appState.mapping = res.mapping || {};
+            renderLabels();
+            updateCounts();
+        } else {
+            alert('Hata: ' + res.message);
+        }
+    })
+    .catch(err => {
+        hideLoading();
+        alert('Hata: ' + err.message);
+    });
+}
+
+function updateCounts() {
+    const selectedItems = appState.items.filter(i => i.selected);
+    const totalSelected = selectedItems.length;
+    const totalItems = appState.items.length;
+
+    document.getElementById('count-selected').textContent = totalSelected;
+    document.getElementById('count-total-items').textContent = totalItems;
+
+    let totalPrintLabels = 0;
+    if (appState.printMode === 'quantity') {
+        totalPrintLabels = selectedItems.reduce((acc, i) => acc + (i.quantity || 1), 0);
+    } else {
+        totalPrintLabels = totalSelected;
+    }
+
+    document.getElementById('badge-total-labels').textContent = `${totalPrintLabels} Etiket`;
+}
+
+// 10cm x 10cm Kargo Etiketlerini Ekrana Çiz (Kullanıcı Şablonu)
+function renderLabels() {
+    const container = document.getElementById('labels-container');
+    container.innerHTML = '';
+
+    const query = appState.searchQuery;
+    const filtered = appState.items.filter(item => {
+        if (!query) return true;
+        const c = (item.customer || '').toLowerCase();
+        const b = (item.barcode || '').toLowerCase();
+        const n = (item.name || '').toLowerCase();
+        const ct = (item.city || '').toLowerCase();
+        return c.includes(query) || b.includes(query) || n.includes(query) || ct.includes(query);
+    });
+
+    if (filtered.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <div class="empty-icon">🔍</div>
+                <h3>Eşleşen sipariş etiketi bulunamadı</h3>
+                <p>Arama filtrenizi temizleyin veya farklı bir arama yapın.</p>
+            </div>
+        `;
+        return;
+    }
+
+    filtered.forEach(item => {
+        const cardWrapper = document.createElement('div');
+        cardWrapper.className = 'label-card-wrapper';
+
+        // Üst Seçim ve Yazdırma Araçları
+        const actionsBar = document.createElement('div');
+        actionsBar.className = 'label-card-actions';
+
+        const checkLabel = document.createElement('label');
+        checkLabel.className = 'checkbox-label';
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.checked = !!item.selected;
+        checkbox.addEventListener('change', (e) => {
+            item.selected = e.target.checked;
+            labelCard.classList.toggle('deselected', !item.selected);
+            updateCounts();
+        });
+        checkLabel.appendChild(checkbox);
+        checkLabel.appendChild(document.createTextNode(item.quantity > 1 ? `${item.quantity} Adet` : '1 Adet'));
+
+        const singlePrintBtn = document.createElement('button');
+        singlePrintBtn.className = 'btn btn-secondary btn-sm';
+        singlePrintBtn.innerHTML = '🖨️';
+        singlePrintBtn.title = 'Sadece bu etiketi yazdır';
+        singlePrintBtn.addEventListener('click', () => printSingleLabel(item));
+
+        actionsBar.appendChild(checkLabel);
+        actionsBar.appendChild(singlePrintBtn);
+
+        // 10cm x 10cm Kare Kart (Kullanıcının Görseliyle Birebir Şablon)
+        const labelCard = document.createElement('div');
+        labelCard.className = `label-card ${item.selected ? '' : 'deselected'}`;
+        if (appState.options.show_border) {
+            labelCard.style.border = '1px dashed #94A3B8';
+        }
+
+        // 1. Üst Kısım: Müşteri Bilgileri
+        const headerInfo = document.createElement('div');
+        headerInfo.className = 'label-header-info';
+
+        if (item.customer) {
+            const custEl = document.createElement('div');
+            custEl.className = 'label-customer-name';
+            custEl.textContent = item.customer;
+            headerInfo.appendChild(custEl);
+        }
+
+        if (item.address) {
+            const addrEl = document.createElement('div');
+            addrEl.className = 'label-customer-addr';
+            addrEl.textContent = item.address;
+            headerInfo.appendChild(addrEl);
+        }
+
+        if (item.city_line) {
+            const cityEl = document.createElement('div');
+            cityEl.className = 'label-customer-city';
+            cityEl.textContent = item.city_line;
+            headerInfo.appendChild(cityEl);
+        }
+
+        if (item.phone) {
+            const phoneEl = document.createElement('div');
+            phoneEl.className = 'label-customer-phone';
+            phoneEl.textContent = item.phone;
+            headerInfo.appendChild(phoneEl);
+        }
+
+        labelCard.appendChild(headerInfo);
+
+        // 2. Orta Kısım: Barkod (Code128) ve Rakamı
+        const bcBox = document.createElement('div');
+        bcBox.className = 'label-barcode-container';
+        const svgEl = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        bcBox.appendChild(svgEl);
+        labelCard.appendChild(bcBox);
+
+        try {
+            if (item.barcode) {
+                JsBarcode(svgEl, item.barcode, {
+                    format: "CODE128",
+                    lineColor: "#000",
+                    width: 2.2,
+                    height: appState.options.barcode_height || 24,
+                    displayValue: true,
+                    fontSize: 14,
+                    textMargin: 3,
+                    font: "sans-serif"
+                });
+            } else {
+                svgEl.outerHTML = '<div style="font-size: 11px; font-weight: bold; color: #DC2626;">[ BARKOD YOK ]</div>';
+            }
+        } catch (e) {
+            svgEl.outerHTML = `<div style="font-size: 11px; font-weight: bold;">Barkod: ${item.barcode}</div>`;
+        }
+
+        // 3. Alt Kısım (Kırmızıyla İşaretlenen Yer): Ürün Adı
+        const prodNameEl = document.createElement('div');
+        prodNameEl.className = 'label-product-name-bottom';
+        prodNameEl.style.fontSize = `${appState.options.font_size || 12}px`;
+        prodNameEl.textContent = item.name;
+        labelCard.appendChild(prodNameEl);
+
+        cardWrapper.appendChild(actionsBar);
+        cardWrapper.appendChild(labelCard);
+        container.appendChild(cardWrapper);
+    });
+}
+
+function printSingleLabel(item) {
+    prepareAndPrintDOM([{ ...item, selected: true }]);
+}
+
+function triggerBulkPrint() {
+    const selectedItems = appState.items.filter(i => i.selected);
+    if (selectedItems.length === 0) {
+        alert('Lütfen yazdırılacak en az bir sipariş seçin.');
+        return;
+    }
+    prepareAndPrintDOM(selectedItems);
+}
+
+function prepareAndPrintDOM(itemsToPrint) {
+    const printContainer = document.getElementById('print-sheet-container');
+    printContainer.innerHTML = '';
+
+    const printMode = appState.printMode;
+    const barcodeHeight = appState.options.barcode_height || 24;
+    const fontSize = appState.options.font_size || 12;
+    const showBorder = appState.options.show_border;
+
+    itemsToPrint.forEach(item => {
+        const count = printMode === 'quantity' ? (item.quantity || 1) : 1;
+        for (let i = 1; i <= count; i++) {
+            const pageEl = document.createElement('div');
+            pageEl.className = 'thermal-label-page';
+            if (showBorder) {
+                pageEl.style.border = '1px dashed #000';
+            }
+
+            // 1. Müşteri Bilgileri
+            const headerInfo = document.createElement('div');
+            headerInfo.className = 'thermal-header-info';
+
+            if (item.customer) {
+                const cEl = document.createElement('div');
+                cEl.className = 'thermal-customer-name';
+                cEl.textContent = item.customer;
+                headerInfo.appendChild(cEl);
+            }
+
+            if (item.address) {
+                const aEl = document.createElement('div');
+                aEl.className = 'thermal-customer-addr';
+                aEl.textContent = item.address;
+                headerInfo.appendChild(aEl);
+            }
+
+            if (item.city_line) {
+                const ctEl = document.createElement('div');
+                ctEl.className = 'thermal-customer-city';
+                ctEl.textContent = item.city_line;
+                headerInfo.appendChild(ctEl);
+            }
+
+            if (item.phone) {
+                const pEl = document.createElement('div');
+                pEl.className = 'thermal-customer-phone';
+                pEl.textContent = item.phone;
+                headerInfo.appendChild(pEl);
+            }
+
+            pageEl.appendChild(headerInfo);
+
+            // 2. Barkod SVG
+            const bcBox = document.createElement('div');
+            bcBox.className = 'thermal-barcode-box';
+            const svgEl = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+            bcBox.appendChild(svgEl);
+            pageEl.appendChild(bcBox);
+
+            try {
+                if (item.barcode) {
+                    JsBarcode(svgEl, item.barcode, {
+                        format: "CODE128",
+                        lineColor: "#000",
+                        width: 2.2,
+                        height: barcodeHeight,
+                        displayValue: true,
+                        fontSize: 13,
+                        textMargin: 2,
+                        font: "sans-serif"
+                    });
+                }
+            } catch (e) {
+                console.error(e);
+            }
+
+            // 3. Ürün Adı (Kırmızı işaretli yer)
+            const prodEl = document.createElement('div');
+            prodEl.className = 'thermal-prod-name-bottom';
+            prodEl.style.fontSize = `${fontSize}pt`;
+            prodEl.textContent = item.name;
+            pageEl.appendChild(prodEl);
+
+            printContainer.appendChild(pageEl);
+        }
+    });
+
+    setTimeout(() => {
+        window.print();
+    }, 100);
+}
+
+function downloadBulkPDF() {
+    const selectedItems = appState.items.filter(i => i.selected);
+    if (selectedItems.length === 0) {
+        alert('Lütfen indirilecek en az bir sipariş seçin.');
+        return;
+    }
+
+    showLoading('10cm x 10cm formatında PDF oluşturuluyor...');
+
+    const payload = {
+        items: selectedItems,
+        options: {
+            ...appState.options,
+            print_count_mode: appState.printMode
+        }
+    };
+
+    fetch('/api/generate-pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    })
+    .then(response => {
+        if (!response.ok) throw new Error('PDF üretimi başarısız oldu.');
+        return response.blob();
+    })
+    .then(blob => {
+        hideLoading();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = url;
+        a.download = `Kargo_Barkod_10x10_${new Date().toISOString().slice(0, 10)}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+    })
+    .catch(err => {
+        hideLoading();
+        alert('Hata: ' + err.message);
+    });
+}
+
+function showLoading(msg) {
+    let loader = document.getElementById('global-loader');
+    if (!loader) {
+        loader = document.createElement('div');
+        loader.id = 'global-loader';
+        loader.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#FFF;font-weight:600;font-size:16px;';
+        loader.innerHTML = '<div style="font-size:40px;margin-bottom:12px;animation:spin 1s linear infinite;">⏳</div><div id="loader-msg">Yükleniyor...</div>';
+        document.body.appendChild(loader);
+    }
+    document.getElementById('loader-msg').textContent = msg || 'Lütfen bekleyin...';
+    loader.style.display = 'flex';
+}
+
+function hideLoading() {
+    const loader = document.getElementById('global-loader');
+    if (loader) loader.style.display = 'none';
+}
