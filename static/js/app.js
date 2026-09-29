@@ -381,7 +381,7 @@ function renderLabels() {
         return;
     }
 
-    // Sadece aynı sipariş numaralı etiketlerde oran hesapla
+    // Sadece aynı sipariş numaralı etiketlerde ardışık oran hesapla (1/3, 2/3, 3/3 ...)
     const orderTotalsScreen = {};
     filtered.forEach(i => {
         const b = String(i.barcode || '').trim();
@@ -391,10 +391,24 @@ function renderLabels() {
         }
     });
 
+    const orderCountersScreen = {};
     filtered.forEach(item => {
         const b = String(item.barcode || '').trim();
         const tot = orderTotalsScreen[b] || 0;
-        item.package_ratio = tot > 1 ? `1/${tot}` : '';
+        if (tot > 1) {
+            const q = (appState.printMode === 'quantity' ? (item.quantity || 1) : 1);
+            const startCnt = (orderCountersScreen[b] || 0) + 1;
+            const endCnt = startCnt + q - 1;
+            orderCountersScreen[b] = endCnt;
+
+            if (startCnt === endCnt) {
+                item.package_ratio = `${startCnt}/${tot}`;
+            } else {
+                item.package_ratio = `${startCnt}-${endCnt}/${tot}`;
+            }
+        } else {
+            item.package_ratio = '';
+        }
         const cardWrapper = document.createElement('div');
         cardWrapper.className = 'label-card-wrapper';
 
